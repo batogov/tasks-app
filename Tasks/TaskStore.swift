@@ -30,13 +30,13 @@ final class TaskStore {
         container.mainContext
     }
 
-    func addTask(title: String) {
+    func addTask(title: String, priority: TaskPriority = .normal) {
         // Shift existing items down, new task goes to the top
         let existing = incompleteTasks()
         for task in existing {
             task.sortOrder += 1
         }
-        let item = TodoItem(title: title, sortOrder: 0)
+        let item = TodoItem(title: title, sortOrder: 0, priority: priority)
         context.insert(item)
         try? context.save()
     }

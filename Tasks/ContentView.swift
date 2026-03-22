@@ -14,6 +14,14 @@ struct ContentView: View {
            sort: \TodoItem.sortOrder)
     private var activeItems: [TodoItem]
 
+    private var mainItems: [TodoItem] {
+        activeItems.filter { $0.priority != .later }
+    }
+
+    private var laterItems: [TodoItem] {
+        activeItems.filter { $0.priority == .later }
+    }
+
     @Query(filter: #Predicate<TodoItem> { $0.isCompleted },
            sort: \TodoItem.completedAt, order: .reverse)
     private var completedItems: [TodoItem]
@@ -57,8 +65,8 @@ struct ContentView: View {
                 Spacer()
             } else {
                 List(selection: $selectedItemID) {
-                    // Active tasks
-                    ForEach(activeItems) { item in
+                    // Main tasks (important + normal, sorted by sortOrder)
+                    ForEach(mainItems) { item in
                         TaskRow(
                             item: item,
                             isPendingCompletion: pendingCompletionIDs.contains(item.id),
@@ -66,16 +74,33 @@ struct ContentView: View {
                         )
                         .tag(item.id)
                     }
-                    .onDelete(perform: deleteActiveItems)
-                    .onMove(perform: moveActiveItems)
+                    .onDelete { offsets in deleteItems(offsets, from: mainItems) }
+                    .onMove(perform: moveMainItems)
+
+                    // Later tasks
+                    if !laterItems.isEmpty {
+                        Section("Later") {
+                            ForEach(laterItems) { item in
+                                TaskRow(
+                                    item: item,
+                                    isPendingCompletion: pendingCompletionIDs.contains(item.id),
+                                    onToggle: { toggleItem(item) }
+                                )
+                                .tag(item.id)
+                            }
+                            .onDelete { offsets in deleteItems(offsets, from: laterItems) }
+                        }
+                    }
 
                     // Completed items
-                    if showCompleted {
-                        ForEach(completedItems) { item in
-                            TaskRow(item: item)
-                                .tag(item.id)
+                    if showCompleted && !completedItems.isEmpty {
+                        Section("Completed") {
+                            ForEach(completedItems) { item in
+                                TaskRow(item: item)
+                                    .tag(item.id)
+                            }
+                            .onDelete(perform: deleteCompletedItems)
                         }
-                        .onDelete(perform: deleteCompletedItems)
                     }
                 }
                 .listStyle(.plain)
@@ -116,6 +141,8 @@ struct ContentView: View {
         }
         .frame(minWidth: 360, minHeight: 400)
         .onAppear { isInputFocused = true }
+        .focusedSceneValue(\.toggleImportantAction) { togglePriority(.important) }
+        .focusedSceneValue(\.toggleLaterAction) { togglePriority(.later) }
     }
 
     private func addTask() {
@@ -164,11 +191,18 @@ struct ContentView: View {
         NotificationCenter.default.post(name: .tasksDidChange, object: nil)
     }
 
-    private func moveActiveItems(from source: IndexSet, to destination: Int) {
-        var reordered = Array(activeItems)
+    private func moveMainItems(from source: IndexSet, to destination: Int) {
+        var reordered = Array(mainItems)
         reordered.move(fromOffsets: source, toOffset: destination)
         for (index, item) in reordered.enumerated() {
             item.sortOrder = index
+        }
+        NotificationCenter.default.post(name: .tasksDidChange, object: nil)
+    }
+
+    private func deleteItems(_ offsets: IndexSet, from items: [TodoItem]) {
+        for index in offsets {
+            modelContext.delete(items[index])
         }
         NotificationCenter.default.post(name: .tasksDidChange, object: nil)
     }
@@ -177,6 +211,21 @@ struct ContentView: View {
         for index in offsets {
             modelContext.delete(activeItems[index])
         }
+        NotificationCenter.default.post(name: .tasksDidChange, object: nil)
+    }
+
+    private func togglePriority(_ priority: TaskPriority) {
+        guard let id = selectedItemID,
+              let item = activeItems.first(where: { $0.id == id }) else { return }
+        let newPriority: TaskPriority = item.priority == priority ? .normal : priority
+        item.priority = newPriority
+
+        // Move important items to the top of the main list
+        if newPriority == .important {
+            let minOrder = (mainItems.map(\.sortOrder).min() ?? 0) - 1
+            item.sortOrder = minOrder
+        }
+
         NotificationCenter.default.post(name: .tasksDidChange, object: nil)
     }
 
@@ -230,6 +279,16 @@ struct TaskRow: View {
         item.isCompleted || isPendingCompletion
     }
 
+    private var checkCircleIcon: String {
+        if visuallyCompleted {
+            return "checkmark.circle.fill"
+        } else if item.priority == .later {
+            return "circle.dashed"
+        } else {
+            return "circle"
+        }
+    }
+
     private static let completedDateFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateStyle = .medium
@@ -248,7 +307,7 @@ struct TaskRow: View {
                     NotificationCenter.default.post(name: .tasksDidChange, object: nil)
                 }
             } label: {
-                Image(systemName: visuallyCompleted ? "checkmark.circle.fill" : "circle")
+                Image(systemName: checkCircleIcon)
                     .font(.title3)
                     .foregroundStyle(visuallyCompleted ? .green : .secondary)
             }
@@ -265,6 +324,12 @@ struct TaskRow: View {
             }
 
             Spacer()
+
+            if !item.isCompleted && item.priority == .important {
+                Image(systemName: "flag.fill")
+                    .foregroundStyle(.red)
+                    .font(.caption)
+            }
         }
         .padding(.vertical, 2)
     }
@@ -337,6 +402,26 @@ struct LinkedText: View {
 
 extension Notification.Name {
     static let tasksDidChange = Notification.Name("tasksDidChange")
+}
+
+struct ToggleImportantActionKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+struct ToggleLaterActionKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+extension FocusedValues {
+    var toggleImportantAction: (() -> Void)? {
+        get { self[ToggleImportantActionKey.self] }
+        set { self[ToggleImportantActionKey.self] = newValue }
+    }
+
+    var toggleLaterAction: (() -> Void)? {
+        get { self[ToggleLaterActionKey.self] }
+        set { self[ToggleLaterActionKey.self] = newValue }
+    }
 }
 
 #Preview {

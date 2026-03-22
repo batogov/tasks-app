@@ -11,6 +11,8 @@ import Cocoa
 class QuickAddWindowController: NSWindowController, NSWindowDelegate {
     private var textField: NSTextField!
     private var addButton: NSButton!
+    private var flagButton: NSButton!
+    private var isImportant = false
     private weak var statusBarController: StatusBarController?
 
     init(statusBarController: StatusBarController) {
@@ -55,14 +57,23 @@ class QuickAddWindowController: NSWindowController, NSWindowDelegate {
         textField.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(textField)
 
+        flagButton = makeFlagButton()
+        flagButton.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(flagButton)
+
         addButton = makeAddButton()
         addButton.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(addButton)
 
         NSLayoutConstraint.activate([
             textField.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: padding),
-            textField.trailingAnchor.constraint(equalTo: addButton.leadingAnchor, constant: -8),
+            textField.trailingAnchor.constraint(equalTo: flagButton.leadingAnchor, constant: -8),
             textField.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+
+            flagButton.trailingAnchor.constraint(equalTo: addButton.leadingAnchor, constant: -4),
+            flagButton.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            flagButton.widthAnchor.constraint(equalToConstant: 20),
+            flagButton.heightAnchor.constraint(equalToConstant: 20),
 
             addButton.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -padding),
             addButton.centerYAnchor.constraint(equalTo: container.centerYAnchor),
@@ -81,7 +92,7 @@ class QuickAddWindowController: NSWindowController, NSWindowDelegate {
         tf.focusRingType = .none
         tf.font = .systemFont(ofSize: 16)
         tf.textColor = .labelColor
-        tf.placeholderString = "New to-do..."
+        tf.placeholderString = "New task..."
         tf.usesSingleLineMode = true
         tf.lineBreakMode = .byClipping
         tf.cell?.isScrollable = true
@@ -92,9 +103,21 @@ class QuickAddWindowController: NSWindowController, NSWindowDelegate {
             .foregroundColor: NSColor.placeholderTextColor,
             .font: NSFont.systemFont(ofSize: 16)
         ]
-        tf.placeholderAttributedString = NSAttributedString(string: "New to-do...", attributes: attrs)
+        tf.placeholderAttributedString = NSAttributedString(string: "New task...", attributes: attrs)
 
         return tf
+    }
+
+    private func makeFlagButton() -> NSButton {
+        let button = NSButton()
+        button.bezelStyle = .inline
+        button.isBordered = false
+        button.image = NSImage(systemSymbolName: "flag", accessibilityDescription: "Important")
+        button.contentTintColor = .secondaryLabelColor
+        button.imageScaling = .scaleProportionallyUpOrDown
+        button.target = self
+        button.action = #selector(flagButtonClicked)
+        return button
     }
 
     private func makeAddButton() -> NSButton {
@@ -111,6 +134,25 @@ class QuickAddWindowController: NSWindowController, NSWindowDelegate {
 
     @objc private func addButtonClicked() {
         submit()
+    }
+
+    @objc private func flagButtonClicked() {
+        toggleImportant()
+    }
+
+    private func updateFlagButton() {
+        if isImportant {
+            flagButton.image = NSImage(systemSymbolName: "flag.fill", accessibilityDescription: "Important")
+            flagButton.contentTintColor = .systemRed
+        } else {
+            flagButton.image = NSImage(systemSymbolName: "flag", accessibilityDescription: "Important")
+            flagButton.contentTintColor = .secondaryLabelColor
+        }
+    }
+
+    private func toggleImportant() {
+        isImportant.toggle()
+        updateFlagButton()
     }
 
     func show() {
@@ -138,10 +180,12 @@ class QuickAddWindowController: NSWindowController, NSWindowDelegate {
         let text = textField.stringValue.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty else { return }
 
-        TaskStore.shared.addTask(title: text)
+        TaskStore.shared.addTask(title: text, priority: isImportant ? .important : .normal)
         statusBarController?.refresh()
         NotificationCenter.default.post(name: .tasksDidChange, object: nil)
         textField.stringValue = ""
+        isImportant = false
+        updateFlagButton()
         dismiss()
     }
 }

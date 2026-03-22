@@ -52,22 +52,31 @@ class StatusBarController {
     // MARK: - UI
 
     private func updateUI(tasks: [TodoItem]) {
-        statusItem.button?.title = tasks.isEmpty ? "" : " \(tasks.count)"
+        // Later items are excluded from the counter
+        let countedTasks = tasks.filter { $0.priority != .later }
+        statusItem.button?.title = countedTasks.isEmpty ? "" : " \(countedTasks.count)"
         statusItem.button?.image = checkmarkIcon
 
         let menu = NSMenu()
+
+        let importantTasks = tasks.filter { $0.priority == .important }
+        let otherTasks = tasks.filter { $0.priority != .important }
 
         if tasks.isEmpty {
             let emptyItem = NSMenuItem(title: "No pending tasks", action: nil, keyEquivalent: "")
             emptyItem.isEnabled = false
             menu.addItem(emptyItem)
         } else {
-            let headerItem = NSMenuItem(title: "Pending tasks", action: nil, keyEquivalent: "")
-            headerItem.isEnabled = false
-            menu.addItem(headerItem)
+            for task in importantTasks {
+                let item = NSMenuItem(title: "", action: #selector(toggleTask(_:)), keyEquivalent: "")
+                item.attributedTitle = attributedTitle(task.title, showFlag: true)
+                item.target = self
+                item.representedObject = task.id
+                menu.addItem(item)
+            }
 
-            for task in tasks {
-                let item = NSMenuItem(title: task.title, action: #selector(toggleTask(_:)), keyEquivalent: "")
+            for task in otherTasks {
+                let item = NSMenuItem(title: truncated(task.title), action: #selector(toggleTask(_:)), keyEquivalent: "")
                 item.target = self
                 item.representedObject = task.id
                 menu.addItem(item)
@@ -76,19 +85,53 @@ class StatusBarController {
 
         menu.addItem(.separator())
 
-        let showWindowItem = NSMenuItem(title: "Open tasks", action: #selector(showMainWindow), keyEquivalent: "")
+        let showWindowItem = NSMenuItem(title: "Open…", action: #selector(showMainWindow), keyEquivalent: "")
         showWindowItem.target = self
+        showWindowItem.image = NSImage(systemSymbolName: "macwindow", accessibilityDescription: "Open")
         menu.addItem(showWindowItem)
 
-        let settingsItem = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        let settingsItem = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: "")
         settingsItem.target = self
+        settingsItem.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: "Settings")
         menu.addItem(settingsItem)
 
-        let quitItem = NSMenuItem(title: "Quit", action: #selector(AppDelegate.quitApp), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: "Quit", action: #selector(AppDelegate.quitApp), keyEquivalent: "")
         quitItem.target = NSApp.delegate
+        quitItem.image = NSImage(systemSymbolName: "power", accessibilityDescription: "Quit")
         menu.addItem(quitItem)
 
         statusItem.menu = menu
+    }
+
+    private static let maxTitleLength = 55
+
+    private func truncated(_ title: String) -> String {
+        title.count > Self.maxTitleLength
+            ? String(title.prefix(Self.maxTitleLength)) + "…"
+            : title
+    }
+
+    private func attributedTitle(_ title: String, showFlag: Bool) -> NSAttributedString {
+        let result = NSMutableAttributedString(string: truncated(title), attributes: [
+            .font: NSFont.menuFont(ofSize: 0)
+        ])
+        if showFlag {
+            let flagAttachment = NSTextAttachment()
+            let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .regular)
+            if let flagImage = NSImage(systemSymbolName: "flag.fill", accessibilityDescription: "Important") {
+                let configured = flagImage.withSymbolConfiguration(config)
+                configured?.isTemplate = false
+                let tinted = configured ?? flagImage
+                tinted.lockFocus()
+                NSColor.systemRed.set()
+                NSRect(origin: .zero, size: tinted.size).fill(using: .sourceAtop)
+                tinted.unlockFocus()
+                flagAttachment.image = tinted
+            }
+            result.append(NSAttributedString(string: "  "))
+            result.append(NSAttributedString(attachment: flagAttachment))
+        }
+        return result
     }
 
     @objc private func toggleTask(_ sender: NSMenuItem) {
